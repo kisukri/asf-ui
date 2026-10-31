@@ -1,0 +1,8 @@
+.env
+data/
+*.db
+*.db-*
+/asf-panel
+/asf-panel.exe
+/dist/
+asf/

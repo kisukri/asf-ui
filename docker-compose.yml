@@ -1,0 +1,23 @@
+services:
+  asf-panel:
+    build: .
+    image: asf-panel:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8000
+      DATABASE_PATH: /data/panel.db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - panel-data:/data
+    networks:
+      - default
+      - asf-net
+
+volumes:
+  panel-data:
+
+networks:
+  asf-net:
+    external: true
