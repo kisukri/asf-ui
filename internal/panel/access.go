@@ -9,11 +9,28 @@ JOIN asf_connections c ON c.id = b.connection_id
 JOIN users o ON o.id = c.user_id
 LEFT JOIN bot_assignments a ON a.bot_id = b.id
 WHERE b.present = 1 AND (
-    (c.user_id = ? AND (a.user_id IS NULL OR a.user_id = ?))
+    (c.user_id = ? AND (a.user_id IS NULL OR a.user_id = ? OR o.is_admin = 1))
     OR (a.user_id = ? AND c.user_id != ? AND o.is_admin = 1 AND o.is_active = 1)
 )`
 
 func visibleArgs(uid int64) []any { return []any{uid, uid, uid, uid} }
+
+// admin owning the asf sees every bot on it, friends' too
+func adminOwns(u *CurrentUser, crow Row) bool {
+	return u.IsAdmin && crow.Int("user_id") == u.ID
+}
+
+func assignedNames(connectionID int64) map[string]string {
+	out := map[string]string{}
+	for _, r := range all(db, `SELECT b.name, u.username FROM bot_assignments a JOIN bots b ON b.id = a.bot_id
+		JOIN users u ON u.id = a.user_id WHERE b.connection_id = ? AND b.present = 1`, connectionID) {
+		out[r.Str("name")] = r.Str("username")
+	}
+	return out
+}
+
+const taskScope = `(t.user_id = ? OR t.connection_id IN (SELECT ac.id FROM asf_connections ac
+	JOIN users ao ON ao.id = ac.user_id WHERE ac.user_id = ? AND ao.is_admin = 1))`
 
 func displayName(crow Row, uid int64) string {
 	if crow.Int("user_id") == uid {
@@ -70,10 +87,14 @@ func targets(uid int64) []M {
 		if !c.Bool("enabled") {
 			status = "disabled"
 		}
+		assigned := map[string]string{}
+		if c.Int("user_id") == uid {
+			assigned = assignedNames(c.Int("id"))
+		}
 		out = append(out, M{
 			"connection_id": c.Int("id"), "name": displayName(c, uid), "owned": c.Int("user_id") == uid,
 			"enabled": c.Bool("enabled"), "status": status, "status_text": statusLabel(status),
-			"bots": visibleBotNames(uid, c.Int("id")),
+			"bots": visibleBotNames(uid, c.Int("id")), "assigned": assigned,
 		})
 	}
 	return out

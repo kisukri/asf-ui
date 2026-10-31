@@ -17,6 +17,8 @@ var taskStatusText = map[string]string{
 
 var stopReasonText = map[string]string{
 	"user":                 "你手动停止了任务",
+	"admin":                "管理员停止了任务",
+	"removed_by_other":     "游戏被其他人从这个 Bot 上移除",
 	"target_reached":       "已达到目标时长，自动停止",
 	"connection_disabled":  "所在 ASF 连接被断开",
 	"connection_deleted":   "所在 ASF 连接被删除",
@@ -30,11 +32,12 @@ var stopReasonText = map[string]string{
 var requestKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 
 const taskSelect = `
-SELECT t.*, b.name AS bot_name, c.name AS connection_name, c.user_id AS connection_owner,
+SELECT t.*, b.name AS bot_name, c.name AS connection_name, c.user_id AS connection_owner, tu.username AS task_owner,
        s.managed, s.confirmed, s.last_online, s.last_playing_possible, s.last_error AS state_error, s.wait_reason
 FROM playtime_tasks t
 JOIN bots b ON b.id = t.bot_id
 JOIN asf_connections c ON c.id = t.connection_id
+JOIN users tu ON tu.id = t.user_id
 LEFT JOIN bot_play_state s ON s.bot_id = t.bot_id`
 
 func taskTiming(r Row) (string, string) {
@@ -80,8 +83,13 @@ func taskDTO(r Row, viewer int64) M {
 		remaining = int64(math.Max(0, target-elapsed))
 	}
 	reason, hasReason := stopReasonText[r.Str("stop_reason")]
+	var owner any
+	if r.Int("user_id") != viewer {
+		owner = r.Str("task_owner")
+	}
 	return M{
-		"id": r.Int("id"), "type": "playtime",
+		"owner": owner,
+		"id":    r.Int("id"), "type": "playtime",
 		"connection": M{"id": r.Int("connection_id"), "name": connName},
 		"bot":        r.Str("bot_name"), "app_id": r.Int("app_id"), "app_name": r["app_name"],
 		"target_seconds": int64(target), "unlimited": unlimited, "elapsed_seconds": int64(elapsed),
@@ -108,8 +116,8 @@ func listTasks(uid int64, status string, limit int) []M {
 			fail(400, "invalid_status", "未知的任务状态筛选。")
 		}
 	}
-	q := taskSelect + " WHERE t.user_id = ?"
-	args := []any{uid}
+	q := taskSelect + " WHERE " + taskScope
+	args := []any{uid, uid}
 	if status != "" {
 		q += " AND t.status = ?"
 		args = append(args, status)
@@ -128,7 +136,7 @@ func taskCounts(uid int64) M {
 	for k := range taskStatusText {
 		out[k] = int64(0)
 	}
-	for _, r := range all(db, "SELECT status, COUNT(*) AS n FROM playtime_tasks WHERE user_id = ? GROUP BY status", uid) {
+	for _, r := range all(db, "SELECT t.status, COUNT(*) AS n FROM playtime_tasks t WHERE "+taskScope+" GROUP BY t.status", uid, uid) {
 		out[r.Str("status")] = r.Int("n")
 	}
 	return out
@@ -307,14 +315,18 @@ func stopTasks(u *CurrentUser, ids []int64) []M {
 			continue
 		}
 		seen[id] = true
-		r := one(db, "SELECT id, bot_id, status FROM playtime_tasks WHERE id = ? AND user_id = ?", id, u.ID)
+		r := one(db, "SELECT t.id, t.bot_id, t.status, t.user_id FROM playtime_tasks t WHERE t.id = ? AND "+taskScope, id, u.ID, u.ID)
 		if r == nil {
 			results = append(results, M{"id": id, "ok": false, "message": "任务不存在或你无权访问"})
 			continue
 		}
+		reason := "user"
+		if r.Int("user_id") != u.ID {
+			reason = "admin"
+		}
 		t := now()
-		res := exec(db, `UPDATE playtime_tasks SET status = 'stopped', stop_reason = 'user', finished_at = ?, updated_at = ?
-			WHERE id = ? AND user_id = ? AND status IN ('running','queued')`, t, t, id, u.ID)
+		res := exec(db, `UPDATE playtime_tasks SET status = 'stopped', stop_reason = ?, finished_at = ?, updated_at = ?
+			WHERE id = ? AND status IN ('running','queued')`, reason, t, t, id)
 		if affected(res) > 0 {
 			botIDs[r.Int("bot_id")] = true
 			record(db, "playtime_stop", "playtime", auditOpt{UserID: u.ID, IP: u.IP, Target: fmt.Sprintf("task:%d", id)})

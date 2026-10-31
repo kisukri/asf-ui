@@ -138,11 +138,12 @@ func finalizeOps(botID int64, ops configOps) {
 	db.tx(func(tx Q) {
 		t := now()
 		if len(ops.StopTaskIDs) > 0 {
-			args := []any{t, t, botID}
+			args := []any{ops.UserID, t, t, botID}
 			for _, id := range ops.StopTaskIDs {
 				args = append(args, id)
 			}
-			exec(tx, `UPDATE playtime_tasks SET status = 'stopped', stop_reason = 'user', finished_at = ?, updated_at = ?
+			exec(tx, `UPDATE playtime_tasks SET status = 'stopped',
+				stop_reason = CASE WHEN user_id = ? THEN 'user' ELSE 'removed_by_other' END, finished_at = ?, updated_at = ?
 				WHERE bot_id = ? AND status IN ('running','queued') AND id IN (`+placeholders(len(ops.StopTaskIDs))+`)`, args...)
 		}
 		st := one(tx, "SELECT applied_appids FROM bot_play_state WHERE bot_id = ?", botID)

@@ -107,6 +107,10 @@ func farmingOverview(u *CurrentUser, force bool) []M {
 			FROM bots b LEFT JOIN bot_play_state s ON s.bot_id = b.id WHERE b.connection_id = ? AND b.present = 1`, cid) {
 			meta[r.Str("name")] = r
 		}
+		assigned := map[string]string{}
+		if adminOwns(u, c) {
+			assigned = assignedNames(cid)
+		}
 		bots := []M{}
 		missing := []string{}
 		for _, name := range allowed {
@@ -126,6 +130,7 @@ func farmingOverview(u *CurrentUser, force bool) []M {
 			bot["skip"] = M{"count": m["skip_count"], "checked_at": m["skip_checked_at"]}
 			bot["deletable"] = canDeleteBot(u, c, m)
 			bot["idle_games"] = withNames(s["idle_games"].([]int64))
+			bot["assigned_to"] = nullable(assigned[name], true)
 			bots = append(bots, bot)
 		}
 		item["bots"] = bots

@@ -181,6 +181,7 @@ details.note[open] summary { margin-bottom: 8px; }
 }
 .tag.farm { color: var(--done); }
 .tag.play { color: var(--info); }
+.tag.owner { color: var(--ink-2); background: var(--neutral-bg); border-color: transparent; font-weight: 500; vertical-align: 1px; }
 
 .form { display: grid; gap: 18px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }

@@ -54,15 +54,21 @@ func nowPlaying(u *CurrentUser) []M {
 		}
 		var live map[string]M
 		liveErr := try(func() { live = liveStatus(c, false) })
+		admin := adminOwns(u, c)
+		assigned := map[string]string{}
+		if admin {
+			assigned = assignedNames(c.Int("id"))
+		}
 		for _, name := range names {
 			brow := one(db, "SELECT id FROM bots WHERE connection_id = ? AND name = ?", c.Int("id"), name)
 			tasks := []M{}
-			for _, r := range all(db, taskSelect+" WHERE t.bot_id = ? AND t.user_id = ? AND t.status IN ('running','queued') ORDER BY t.created_at",
-				brow.Int("id"), u.ID) {
+			for _, r := range all(db, taskSelect+" WHERE t.bot_id = ? AND (t.user_id = ? OR ?) AND t.status IN ('running','queued') ORDER BY t.created_at",
+				brow.Int("id"), u.ID, admin) {
 				tasks = append(tasks, taskDTO(r, u.ID))
 			}
 			item := M{"connection": M{"id": c.Int("id"), "name": displayName(c, u.ID)}, "bot": name, "playtime": tasks,
-				"farming_games": []M{}, "config_games": []M{}, "state": "unknown", "state_text": "无法读取状态", "online": false}
+				"farming_games": []M{}, "config_games": []M{}, "state": "unknown", "state_text": "无法读取状态", "online": false,
+				"assigned_to": nullable(assigned[name], true)}
 			if liveErr != nil {
 				item["error"] = liveErr.Message
 			} else if s, ok := live[name]; ok {

@@ -133,6 +133,7 @@
       : `<div class="panel empty"><h2>${t('还没有可用的 Bot')}</h2><p>${t('管理员还没有为你分配 Bot。如果管理员给了你新建额度，可以点“现在在挂”旁边的“新建 Bot”。')}</p></div>`;
   }
   const badge = (kind, text) => `<span class="badge b-${esc(kind)}">${esc(text)}</span>`;
+  const assignedTag = (name) => (name ? ` <span class="tag owner" title="${esc(t('已分配给 %s', name))}">→ ${esc(name)}</span>` : '');
 
   function toast(msg, kind = 'info', ms = 4500) {
     const el = document.createElement('div');
@@ -394,7 +395,7 @@
     return `<div class="bot-grid">${shown.map((b) => {
       const key = `${b.connection.id}|${b.bot}`;
       const games = b.playtime.map((x) => ({ name: x.app_name, id: x.app_id,
-        extra: `${x.status === 'queued' ? t('排队中') : `${t('已挂 %s', fmtDur(x.elapsed_seconds))}${x.target_seconds ? ` / ${fmtDur(x.target_seconds)}` : ''}`}${x.timing !== 'accruing' && x.timing_text ? ` · ${x.timing_text}` : ''}` }))
+        extra: `${x.status === 'queued' ? t('排队中') : `${t('已挂 %s', fmtDur(x.elapsed_seconds))}${x.target_seconds ? ` / ${fmtDur(x.target_seconds)}` : ''}`}${x.timing !== 'accruing' && x.timing_text ? ` · ${x.timing_text}` : ''}${x.owner ? ` · ${t('%s 的任务', x.owner)}` : ''}` }))
         .concat((b.config_games || []).map((g) => ({ name: g.name, id: g.app_id, extra: '' })));
       const preview = games.slice(0, 2).map((g) => esc(g.name || `App ${g.id}`)).join(sep()) + (games.length > 2 ? ' …' : '');
       const body = games.length
@@ -403,7 +404,7 @@
         : `<p class="muted small">${esc(b.error || t('没有挂时长的游戏'))}</p>`;
       const farm = b.farming_games.length
         ? `<div class="small"><span class="tag farm">${t('挂卡')}</span> ${b.farming_games.map((g) => `${gameHtml(g.app_id, g.name)}${g.cards_remaining != null ? ` <span class="muted">${t('剩 %d 张卡', g.cards_remaining)}</span>` : ''}`).join(sep())}</div>` : '';
-      return `<article class="bot"><header><span><span class="name">${esc(b.bot)}</span><span class="muted small conn">${esc(b.connection.name)}</span></span>
+      return `<article class="bot"><header><span><span class="name">${esc(b.bot)}${assignedTag(b.assigned_to)}</span><span class="muted small conn">${esc(b.connection.name)}</span></span>
         ${badge(FARM_KIND[b.state] || 'muted', b.state_text)}</header>${body}${farm}
         <footer><button class="btn sm" data-act="idleedit" data-cid="${b.connection.id}" data-bot="${esc(b.bot)}">${t('管理')}</button></footer></article>`;
     }).join('')}</div>`;
@@ -697,7 +698,7 @@
       ? `<div>${active ? `<input type="checkbox" aria-label="${t('选择任务')}" data-sel="${x.id}" ${selected ? 'checked' : ''}>` : ''}</div>` : '';
     return `<div class="row ${withCheck ? '' : 'no-check'}">${check}
       <div><div class="title">${gameHtml(x.app_id, x.app_name)}</div>
-        <div class="sub"><span class="tag play">${t('游戏时长')}</span> ${esc(x.connection.name)} · ${esc(x.bot)}</div>${note}</div>
+        <div class="sub"><span class="tag play">${t('游戏时长')}</span> ${esc(x.connection.name)} · ${esc(x.bot)}${x.owner ? ` · <span class="tag owner">${esc(t('%s 的任务', x.owner))}</span>` : ''}</div>${note}</div>
       <div>${badge(TASK_KIND[x.status] || 'muted', x.status_text)}${timing}${end}</div>
       <div>${x.unlimited
         ? `<div class="sub"><strong>${t('已挂 %s', fmtDur(x.elapsed_seconds))}</strong> · ${t('一直挂，直到手动停止')}</div>`
@@ -786,7 +787,7 @@
         ? `<div class="note">${t('有 %d 个游戏时长任务正在使用这个 Bot，挂卡已暂停。', b.playtime.playtime_tasks)}${b.playtime.resume_after ? t('任务全部结束后会继续挂卡。') : t('任务全部结束后不会挂卡。')}</div>` : '';
       return `<article class="bot">
         <header><label class="check"><input type="checkbox" data-sel="${k}" ${this.sel.has(key) ? 'checked' : ''} aria-label="${esc(b.name)}">
-          <span><span class="name">${esc(b.name)}</span>${b.nickname ? `<span class="muted small conn">${esc(b.nickname)}</span>` : ''}</span></label>
+          <span><span class="name">${esc(b.name)}${assignedTag(b.assigned_to)}</span>${b.nickname ? `<span class="muted small conn">${esc(b.nickname)}</span>` : ''}</span></label>
           ${badge(FARM_KIND[b.state] || 'muted', b.state_text)}</header>
         <dl>
           <dt>${t('在线状态')}</dt><dd>${b.online ? t('在线') : (b.keep_running ? t('正在连接') : t('离线'))}</dd>
@@ -978,7 +979,7 @@
       let conns = [];
       try {
         conns = (await api('GET', '/api/targets')).targets.filter((x) => x.enabled && x.bots.length)
-          .map((x) => ({ id: x.connection_id, name: x.name, status: x.status, status_text: x.status_text, bots: x.bots }));
+          .map((x) => ({ id: x.connection_id, name: x.name, status: x.status, status_text: x.status_text, bots: x.bots, assigned: x.assigned || {} }));
       } catch (e) { showError(e); }
       this.conns = conns;
       const defMin = S.prefs && S.prefs.default_minutes != null ? S.prefs.default_minutes : 0;
@@ -1046,7 +1047,7 @@
       const fillBots = () => {
         const c = this.conns.find((x) => x.id === Number($('#tc').value));
         const bots = c ? c.bots : [];
-        $('#tb').innerHTML = bots.length ? bots.map((b) => `<option>${esc(b)}</option>`).join('') : `<option value="">${t('（没有 Bot）')}</option>`;
+        $('#tb').innerHTML = bots.length ? bots.map((b) => `<option value="${esc(b)}">${esc(b)}${c.assigned[b] ? ` → ${esc(c.assigned[b])}` : ''}</option>`).join('') : `<option value="">${t('（没有 Bot）')}</option>`;
         $('#tbh').textContent = c && c.status !== 'ok' ? t('该连接当前状态：%s', c.status_text) : '';
       };
       $('#tc').addEventListener('change', fillBots);
@@ -1473,7 +1474,7 @@
       return `<section class="panel"><div class="panel-head"><h2>${t('Bot 与分配')}</h2><button class="btn sm primary" data-act="newbot">${t('新建 Bot')}</button></div>
         <details class="note help-box"><summary>${t('分配规则')}</summary><ul>
           <li>${t('朋友只能看到并操作分配给他的 Bot，看不到其他 Bot、你的 ASF 地址或 IPC 密码。')}</li>
-          <li>${t('一个 Bot 同时只属于一个人；分配出去后，它也会从你自己的页面中隐藏。')}</li>
+          <li>${t('一个 Bot 同时只分给一个朋友。分出去的 Bot 仍会显示在你的页面里（带“→ 用户名”），你也可以直接操作它，包括停止朋友的任务。')}</li>
           <li>${t('改分配或收回时，原使用者在该 Bot 上进行中的游戏时长任务会停止。')}</li>
           <li>${t('Bot 从 ASF 中消失后，分配会自动取消；之后出现的同名 Bot 需要重新分配。')}</li></ul></details>
         <div class="table-wrap"><table><thead><tr><th>Bot</th><th>${t('所在连接')}</th><th>${t('分配给')}</th><th>${t('进行中任务')}</th><th></th></tr></thead><tbody>
@@ -1549,8 +1550,8 @@
         const newName = newId ? (this.botData.users.find((u) => u.id === newId) || {}).username : null;
         const self = t('我自己管理');
         const html = `<p><strong>${esc(bot.bot)}</strong>: ${esc(bot.assigned_username || self)} → <strong>${esc(newName || self)}</strong></p>
-          <ul>${newName ? `<li>${t('%s 将可以在面板中操作这个 Bot 的挂卡、跳过列表和游戏时长。', esc(newName))}</li>` : `<li>${t('这个 Bot 会回到你自己的页面中。')}</li>`}
-          ${bot.active_tasks ? `<li>${t('该 Bot 上 %d 个进行中的游戏时长任务（属于原使用者的）会停止。', bot.active_tasks)}</li>` : ''}</ul>`;
+          <ul>${newName ? `<li>${t('%s 将可以在面板中操作这个 Bot 的挂卡、跳过列表和游戏时长。', esc(newName))}</li>` : `<li>${t('这个 Bot 不再分给任何朋友。')}</li>`}
+          ${bot.active_tasks ? `<li>${t('该 Bot 上不属于新使用者的进行中任务会停止（目前共有 %d 个进行中任务）。', bot.active_tasks)}</li>` : ''}</ul>`;
         if (!await confirmBox(t('修改 Bot 分配'), html, { confirm: t('确认修改') })) { sel.value = bot.assigned_user_id ?? ''; return; }
         await busy(b, async () => {
           try {
@@ -1594,7 +1595,7 @@
   async function boot() {
     LANG = pickLang();
     try {
-      const r = await fetch('/static/i18n.json?v=9', { credentials: 'same-origin' });
+      const r = await fetch('/static/i18n.json?v=10', { credentials: 'same-origin' });
       if (r.ok) DICT = await r.json();
     } catch (e) { /* falls back to Chinese */ }
     applyLang();
